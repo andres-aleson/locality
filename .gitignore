@@ -36,6 +36,16 @@ yarn-error.log*
 # vercel
 .vercel
 
+# locality: local submission records (contains uploader PII)
+/data/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local tooling / machine-specific (settings.local.json contains test admin passwords)
+.claude/
+src/app/.claude/
+
+# tesseract language data (downloaded at runtime, 5MB binary)
+eng.traineddata
