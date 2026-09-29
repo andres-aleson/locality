@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { addWeeks, format, parseISO, startOfWeek } from "date-fns";
 import { z } from "zod";
 import { generateContentDraft, generateWeeklyPlan } from "./ai";
-import { getSessionUser } from "./supabase-server";
+import { getSessionUser } from "./session";
 import {
   createBusiness,
   createPlanActions,

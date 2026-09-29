@@ -5,7 +5,7 @@ import type { Business, GeneratedPlan, PlanAction } from "./types";
 
 const MODEL = "claude-sonnet-5";
 
-// Mirrors the plan_actions CHECK constraints in supabase/schema.sql. Claude is
+// Mirrors the plan_actions CHECK constraints in src/db/schema.ts. Claude is
 // instructed to only use these values, but LLM output isn't guaranteed —
 // .catch("other") keeps a slightly-off response from failing the DB insert
 // and breaking the whole plan for the user.

@@ -1,5 +1,7 @@
 import "server-only";
-import { getSupabase } from "./supabase";
+import { asc, desc, eq, getTableColumns, inArray } from "drizzle-orm";
+import { getDb } from "@/db";
+import { businesses, contentDrafts, planActions, reviews, weeklyPlans } from "@/db/schema";
 import type {
   ActionStatus,
   Business,
@@ -16,23 +18,13 @@ import type {
 export async function createBusiness(
   input: Omit<Business, "id" | "created_at">
 ): Promise<Business> {
-  const { data, error } = await getSupabase()
-    .from("businesses")
-    .insert(input)
-    .select()
-    .single();
-  if (error) throw error;
-  return data as Business;
+  const [row] = await getDb().insert(businesses).values(input).returning();
+  return row;
 }
 
 export async function getBusinessForUser(userId: string): Promise<Business | null> {
-  const { data, error } = await getSupabase()
-    .from("businesses")
-    .select()
-    .eq("user_id", userId)
-    .maybeSingle();
-  if (error) throw error;
-  return data as Business | null;
+  const [row] = await getDb().select().from(businesses).where(eq(businesses.user_id, userId)).limit(1);
+  return row ?? null;
 }
 
 export async function createWeeklyPlan(
@@ -41,29 +33,23 @@ export async function createWeeklyPlan(
   weekStart: string,
   theme: string
 ): Promise<WeeklyPlan> {
-  const { data, error } = await getSupabase()
-    .from("weekly_plans")
-    .insert({ business_id: businessId, week_number: weekNumber, week_start: weekStart, theme })
-    .select()
-    .single();
-  if (error) throw error;
-  return data as WeeklyPlan;
+  const [row] = await getDb()
+    .insert(weeklyPlans)
+    .values({ business_id: businessId, week_number: weekNumber, week_start: weekStart, theme })
+    .returning();
+  return row;
 }
 
 export async function getWeeklyPlan(id: string): Promise<WeeklyPlan | null> {
-  const { data, error } = await getSupabase()
-    .from("weekly_plans")
-    .select()
-    .eq("id", id)
-    .maybeSingle();
-  if (error) throw error;
-  return data as WeeklyPlan | null;
+  const [row] = await getDb().select().from(weeklyPlans).where(eq(weeklyPlans.id, id)).limit(1);
+  return row ?? null;
 }
 
 export async function createPlanActions(
   weeklyPlanId: string,
   actions: GeneratedAction[]
 ): Promise<PlanAction[]> {
+  if (actions.length === 0) return [];
   const rows = actions.map((a, i) => ({
     weekly_plan_id: weeklyPlanId,
     order_index: i,
@@ -73,45 +59,32 @@ export async function createPlanActions(
     action_type: a.action_type,
     platform: a.platform,
   }));
-  const { data, error } = await getSupabase()
-    .from("plan_actions")
-    .insert(rows)
-    .select();
-  if (error) throw error;
-  return data as PlanAction[];
+  return (await getDb().insert(planActions).values(rows).returning()) as PlanAction[];
 }
 
 export async function getLatestPlanForBusiness(
   businessId: string
 ): Promise<WeeklyPlanWithActions | null> {
-  const { data: plan, error } = await getSupabase()
-    .from("weekly_plans")
+  const [plan] = await getDb()
     .select()
-    .eq("business_id", businessId)
-    .order("week_start", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw error;
+    .from(weeklyPlans)
+    .where(eq(weeklyPlans.business_id, businessId))
+    .orderBy(desc(weeklyPlans.week_start))
+    .limit(1);
   if (!plan) return null;
 
-  const { data: actions, error: actionsError } = await getSupabase()
-    .from("plan_actions")
+  const actions = await getDb()
     .select()
-    .eq("weekly_plan_id", plan.id)
-    .order("order_index");
-  if (actionsError) throw actionsError;
+    .from(planActions)
+    .where(eq(planActions.weekly_plan_id, plan.id))
+    .orderBy(asc(planActions.order_index));
 
-  return { ...(plan as WeeklyPlan), actions: (actions ?? []) as PlanAction[] };
+  return { ...plan, actions: actions as PlanAction[] };
 }
 
 export async function getPlanAction(id: string): Promise<PlanAction | null> {
-  const { data, error } = await getSupabase()
-    .from("plan_actions")
-    .select()
-    .eq("id", id)
-    .maybeSingle();
-  if (error) throw error;
-  return data as PlanAction | null;
+  const [row] = await getDb().select().from(planActions).where(eq(planActions.id, id)).limit(1);
+  return (row as PlanAction | undefined) ?? null;
 }
 
 /**
@@ -137,27 +110,20 @@ export async function setActionStatus(
   id: string,
   status: ActionStatus
 ): Promise<PlanAction> {
-  const { data, error } = await getSupabase()
-    .from("plan_actions")
-    .update({ status })
-    .eq("id", id)
-    .select()
-    .single();
-  if (error) throw error;
-  return data as PlanAction;
+  const [row] = await getDb().update(planActions).set({ status }).where(eq(planActions.id, id)).returning();
+  if (!row) throw new Error("Plan action not found");
+  return row as PlanAction;
 }
 
 export async function saveContentDraft(
   planActionId: string,
   draftText: string
 ): Promise<ContentDraft> {
-  const { data, error } = await getSupabase()
-    .from("content_drafts")
-    .insert({ plan_action_id: planActionId, draft_text: draftText })
-    .select()
-    .single();
-  if (error) throw error;
-  return data as ContentDraft;
+  const [row] = await getDb()
+    .insert(contentDrafts)
+    .values({ plan_action_id: planActionId, draft_text: draftText })
+    .returning();
+  return row;
 }
 
 export async function getLatestContentDrafts(
@@ -165,15 +131,14 @@ export async function getLatestContentDrafts(
 ): Promise<Record<string, ContentDraft>> {
   if (planActionIds.length === 0) return {};
 
-  const { data, error } = await getSupabase()
-    .from("content_drafts")
+  const rows = await getDb()
     .select()
-    .in("plan_action_id", planActionIds)
-    .order("created_at", { ascending: false });
-  if (error) throw error;
+    .from(contentDrafts)
+    .where(inArray(contentDrafts.plan_action_id, planActionIds))
+    .orderBy(desc(contentDrafts.created_at));
 
   const latest: Record<string, ContentDraft> = {};
-  for (const draft of (data ?? []) as ContentDraft[]) {
+  for (const draft of rows) {
     if (!latest[draft.plan_action_id]) latest[draft.plan_action_id] = draft;
   }
   return latest;
@@ -184,55 +149,43 @@ export async function createReview(input: {
   rating: number;
   body: string;
 }): Promise<Review> {
-  const { data, error } = await getSupabase()
-    .from("reviews")
-    .insert({ ...input, status: "pending" })
-    .select()
-    .single();
-  if (error) throw error;
-  return data as Review;
+  const [row] = await getDb()
+    .insert(reviews)
+    .values({ ...input, status: "pending" })
+    .returning();
+  return row as Review;
 }
 
 export async function getReviewForBusiness(businessId: string): Promise<Review | null> {
-  const { data, error } = await getSupabase()
-    .from("reviews")
-    .select()
-    .eq("business_id", businessId)
-    .maybeSingle();
-  if (error) throw error;
-  return data as Review | null;
+  const [row] = await getDb().select().from(reviews).where(eq(reviews.business_id, businessId)).limit(1);
+  return (row as Review | undefined) ?? null;
+}
+
+async function getReviewsWithBusinessName(
+  status: ReviewStatus,
+  order: "asc" | "desc",
+  fallbackName: string,
+  limit?: number
+): Promise<ReviewWithBusinessName[]> {
+  const query = getDb()
+    .select({ ...getTableColumns(reviews), business_name: businesses.name })
+    .from(reviews)
+    .leftJoin(businesses, eq(reviews.business_id, businesses.id))
+    .where(eq(reviews.status, status))
+    .orderBy(order === "asc" ? asc(reviews.created_at) : desc(reviews.created_at));
+
+  const rows = limit ? await query.limit(limit) : await query;
+  return rows.map((row) => ({ ...(row as Review), business_name: row.business_name ?? fallbackName }));
 }
 
 export async function getPendingReviews(): Promise<ReviewWithBusinessName[]> {
-  const { data, error } = await getSupabase()
-    .from("reviews")
-    .select("*, businesses(name)")
-    .eq("status", "pending")
-    .order("created_at", { ascending: true });
-  if (error) throw error;
-
-  return (data ?? []).map((row) => {
-    const { businesses, ...review } = row as Review & { businesses: { name: string } | null };
-    return { ...review, business_name: businesses?.name ?? "Unknown business" };
-  });
+  return getReviewsWithBusinessName("pending", "asc", "Unknown business");
 }
 
 export async function setReviewStatus(id: string, status: ReviewStatus): Promise<void> {
-  const { error } = await getSupabase().from("reviews").update({ status }).eq("id", id);
-  if (error) throw error;
+  await getDb().update(reviews).set({ status }).where(eq(reviews.id, id));
 }
 
 export async function getApprovedReviews(limit = 6): Promise<ReviewWithBusinessName[]> {
-  const { data, error } = await getSupabase()
-    .from("reviews")
-    .select("*, businesses(name)")
-    .eq("status", "approved")
-    .order("created_at", { ascending: false })
-    .limit(limit);
-  if (error) throw error;
-
-  return (data ?? []).map((row) => {
-    const { businesses, ...review } = row as Review & { businesses: { name: string } | null };
-    return { ...review, business_name: businesses?.name ?? "A LocalReach customer" };
-  });
+  return getReviewsWithBusinessName("approved", "desc", "A LocalReach customer", limit);
 }

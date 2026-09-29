@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getSessionUser } from "@/lib/supabase-server";
+import { getSessionUser } from "@/lib/session";
 import { getVerificationPageData } from "@/lib/locality/actions";
 import { VerificationWizard } from "./VerificationWizard";
 

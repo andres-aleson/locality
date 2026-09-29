@@ -61,7 +61,10 @@ export default function PrivacyPage() {
             <p>We use third-party services to run LocalReach, which process data on our behalf:</p>
             <ul className="list-disc pl-5">
               <li>
-                <strong>Supabase</strong> — hosts our database (your business and review data).
+                <strong>Render</strong> — hosts our database (your business and review data).
+              </li>
+              <li>
+                <strong>Vercel</strong> — hosts the LocalReach website and app.
               </li>
               <li>
                 <strong>Anthropic</strong> — your business profile is sent to generate your

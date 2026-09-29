@@ -1,10 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { auth } from "@/lib/auth";
 
 // Next.js 16 renamed Middleware to Proxy — same mechanism, new file/export name.
 // Gates /admin (LocalReach) and /locality/admin + its review API (Locality)
 // behind their own shared passwords, and /dashboard + /onboarding behind
-// Google sign-in (Supabase Auth). LocalReach and Locality are separate
+// Google sign-in (Auth.js). LocalReach and Locality are separate
 // products sharing this repo, so they get separate admin passwords.
 export async function proxy(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
@@ -68,43 +68,17 @@ function basicAuth(request: NextRequest, password: string | undefined, realm: st
   });
 }
 
-// Calls Supabase (not just a cookie-presence check) so an expired access
-// token gets refreshed and rewritten to the response here — skipping this
-// causes sessions to silently desync, per Supabase's SSR guidance.
+// Decodes and verifies the Auth.js session cookie (a signed JWT) — no
+// database round-trip. Pages still re-check the session server-side.
 async function sessionAuth(request: NextRequest): Promise<NextResponse> {
   const loginPath = request.nextUrl.pathname.startsWith("/locality") ? "/locality/login" : "/login";
-  let response = NextResponse.next({ request });
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) {
+  const session = await auth();
+  if (!session?.user?.id) {
     return NextResponse.redirect(new URL(loginPath, request.url));
   }
 
-  const supabase = createServerClient(url, key, {
-    cookies: {
-      getAll() {
-        return request.cookies.getAll();
-      },
-      setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-        response = NextResponse.next({ request });
-        cookiesToSet.forEach(({ name, value, options }) =>
-          response.cookies.set(name, value, options)
-        );
-      },
-    },
-  });
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.redirect(new URL(loginPath, request.url));
-  }
-
-  return response;
+  return NextResponse.next();
 }
 
 export const config = {

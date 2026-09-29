@@ -81,7 +81,7 @@ export default function TermsPage() {
               6. Third-party services
             </h2>
             <p>
-              LocalReach relies on third-party providers — Supabase (database/hosting) and
+              LocalReach relies on third-party providers — Vercel (hosting), Render (database), and
               Anthropic (AI generation). Your use of LocalReach is also subject to those
               providers&apos; own terms.
             </p>

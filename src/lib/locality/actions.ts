@@ -1,40 +1,19 @@
 "use server";
 
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { getSessionUser, getSupabaseServerClient } from "@/lib/supabase-server";
+import { signIn, signOut } from "@/lib/auth";
+import { getSessionUser } from "@/lib/session";
 import * as db from "./db";
 import { getSubmission } from "./submissions";
-import type { SubmissionStatus, User, VerificationSteps } from "./types";
+import type { CircleMessage, Message, SubmissionStatus, User, VerificationSteps } from "./types";
 
 export async function signInWithGoogleForLocality(): Promise<void> {
-  const supabase = await getSupabaseServerClient();
-  if (!supabase) {
-    throw new Error(
-      "Google sign-in isn't configured yet — add NEXT_PUBLIC_SUPABASE_URL and " +
-        "NEXT_PUBLIC_SUPABASE_ANON_KEY to .env.local and set up the Google provider in Supabase."
-    );
-  }
-
-  const origin = (await headers()).get("origin");
-
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: "google",
-    options: { redirectTo: `${origin}/locality/auth/callback` },
-  });
-
-  if (error || !data.url) {
-    throw new Error(error?.message ?? "Failed to start Google sign-in");
-  }
-
-  redirect(data.url);
+  await signIn("google", { redirectTo: "/locality/verification" });
 }
 
 export async function signOutOfLocality(): Promise<void> {
-  const supabase = await getSupabaseServerClient();
-  if (supabase) await supabase.auth.signOut();
-  redirect("/locality");
+  await signOut({ redirectTo: "/locality" });
 }
 
 async function requireLocalityProfile() {
@@ -42,8 +21,8 @@ async function requireLocalityProfile() {
   if (!user) throw new Error("Not signed in");
 
   await db.getOrCreateProfile(user.id, {
-    name: (user.user_metadata?.full_name as string | undefined) ?? "",
-    email: user.email ?? "",
+    name: user.name,
+    email: user.email,
   });
 
   return user.id;
@@ -120,8 +99,8 @@ export async function getAccountStatus(): Promise<{
   if (!user) return { signedIn: false, accountApproved: false, profile: null };
 
   const row = await db.getOrCreateProfile(user.id, {
-    name: (user.user_metadata?.full_name as string | undefined) ?? "",
-    email: user.email ?? "",
+    name: user.name,
+    email: user.email,
   });
   const approved = db.isAccountApproved(row);
   const profile = await db.getProfile(user.id);
@@ -270,9 +249,13 @@ export async function confirmDropoff(rideId: string): Promise<void> {
   revalidatePath(`/locality/app/ride/${rideId}`);
 }
 
-export async function sendMessage(rideId: string, text: string): Promise<import("./types").Message | null> {
+export async function sendMessage(rideId: string, text: string): Promise<Message | null> {
   const profileId = await requireLocalityProfile();
   if (!text.trim()) return null;
+  const ride = await db.getRide(rideId);
+  if (!ride || (ride.driverId !== profileId && ride.parentId !== profileId)) {
+    throw new Error("You can only message about rides you're part of.");
+  }
   const message = await db.sendMessage(rideId, profileId, text.trim());
   revalidatePath(`/locality/app/ride/${rideId}/messages`);
   return message;
@@ -281,7 +264,7 @@ export async function sendMessage(rideId: string, text: string): Promise<import(
 export async function sendCircleMessage(
   circleId: string,
   text: string
-): Promise<import("./types").CircleMessage | null> {
+): Promise<CircleMessage | null> {
   const profileId = await requireLocalityProfile();
   if (!text.trim()) return null;
   if (!(await db.isCircleMember(profileId, circleId))) {
@@ -297,4 +280,20 @@ export async function reportIssue(rideId: string | undefined, description: strin
   if (!description.trim()) return;
   await db.reportIssue(profileId, rideId, description.trim());
   revalidatePath("/locality/app/safety");
+}
+
+// Polled by the chat threads every few seconds for live updates (replaces
+// Supabase Realtime). Same access rules the old RLS policies enforced: ride
+// messages only for the ride's driver/parent, circle messages only for members.
+export async function pollRideMessages(rideId: string): Promise<Message[]> {
+  const profileId = await requireLocalityProfile();
+  const ride = await db.getRide(rideId);
+  if (!ride || (ride.driverId !== profileId && ride.parentId !== profileId)) return [];
+  return db.getMessagesForRide(rideId);
+}
+
+export async function pollCircleMessages(circleId: string): Promise<CircleMessage[]> {
+  const profileId = await requireLocalityProfile();
+  if (!(await db.isCircleMember(profileId, circleId))) return [];
+  return db.getCircleMessages(circleId);
 }

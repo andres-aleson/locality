@@ -90,8 +90,11 @@ export default function LocalityPrivacyPage() {
           <p>We use third-party services to run Locality, which process data on our behalf:</p>
           <ul className="list-disc pl-5">
             <li>
-              <strong>Supabase</strong> — hosts our database, including your account, ride, and
+              <strong>Render</strong> — hosts our database, including your account, ride, and
               message data.
+            </li>
+            <li>
+              <strong>Vercel</strong> — hosts the Locality website and app.
             </li>
             <li>
               <strong>Google</strong> — used only to sign you in; we don&apos;t receive your
@@ -185,7 +188,7 @@ export default function LocalityPrivacyPage() {
         <section className="flex flex-col gap-2">
           <h2 className="font-semibold text-slate-900 dark:text-slate-50">8. Data security</h2>
           <p>
-            Your data is stored with Supabase using encryption in transit (TLS) and at rest, behind
+            Your data is stored with Render using encryption in transit (TLS) and at rest, behind
             access controls that require your Google sign-in — only you can access your own
             profile, and only members of a Circle can see that Circle&apos;s families and messages.
             No method of storage or transmission is 100% secure, and we can&apos;t guarantee

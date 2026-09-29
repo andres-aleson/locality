@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createBusinessAndPlan } from "@/lib/actions";
 import { getBusinessForUser } from "@/lib/db";
-import { getSessionUser } from "@/lib/supabase-server";
+import { getSessionUser } from "@/lib/session";
 import { SiteHeader } from "@/components/SiteHeader";
 
 // Depends on the caller's session — must never be prerendered/cached as static content.

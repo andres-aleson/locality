@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getBusinessForUser, getReviewForBusiness } from "@/lib/db";
 import { submitReview } from "@/lib/actions";
-import { getSessionUser } from "@/lib/supabase-server";
+import { getSessionUser } from "@/lib/session";
 import { SiteHeader } from "@/components/SiteHeader";
 
 // Per-account data — must never be prerendered/cached as static content.

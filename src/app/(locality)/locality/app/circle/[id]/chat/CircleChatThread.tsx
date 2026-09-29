@@ -1,21 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
-import { sendCircleMessage } from "@/lib/locality/actions";
+import { pollCircleMessages, sendCircleMessage } from "@/lib/locality/actions";
 import { Avatar } from "@/components/locality/Avatar";
 import type { CircleMessage, User } from "@/lib/locality/types";
 
-interface CircleMessageRow {
-  id: string;
-  circle_id: string;
-  sender_id: string;
-  text: string;
-  created_at: string;
-}
+const POLL_INTERVAL_MS = 4000;
 
-function fromRow(row: CircleMessageRow): CircleMessage {
-  return { id: row.id, circleId: row.circle_id, senderId: row.sender_id, text: row.text, timestamp: row.created_at };
+/** Adds any messages from `latest` not already shown, keeping chronological order. */
+function mergeMessages(prev: CircleMessage[], latest: CircleMessage[]): CircleMessage[] {
+  const known = new Set(prev.map((m) => m.id));
+  const added = latest.filter((m) => !known.has(m.id));
+  if (added.length === 0) return prev;
+  return [...prev, ...added].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 }
 
 export function CircleChatThread({
@@ -37,24 +34,24 @@ export function CircleChatThread({
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [messages.length]);
 
+  // Poll for new messages while the tab is visible (replaces Supabase Realtime).
   useEffect(() => {
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) return;
-
-    const channel = supabase
-      .channel(`locality-circle-messages-${circleId}`)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "locality_circle_messages", filter: `circle_id=eq.${circleId}` },
-        (payload) => {
-          const row = payload.new as CircleMessageRow;
-          setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, fromRow(row)]));
-        }
-      )
-      .subscribe();
-
+    let cancelled = false;
+    const refresh = async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const latest = await pollCircleMessages(circleId);
+        if (!cancelled) setMessages((prev) => mergeMessages(prev, latest));
+      } catch {
+        // Transient network/server error — the next tick retries.
+      }
+    };
+    const timer = setInterval(refresh, POLL_INTERVAL_MS);
+    document.addEventListener("visibilitychange", refresh);
     return () => {
-      supabase.removeChannel(channel);
+      cancelled = true;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
     };
   }, [circleId]);
 

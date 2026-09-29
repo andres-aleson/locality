@@ -210,7 +210,7 @@ export default function LocalityTermsPage() {
         <section className="flex flex-col gap-2">
           <h2 className="font-semibold text-slate-900 dark:text-slate-50">13. Third-party services</h2>
           <p>
-            Locality uses Google (for sign-in) and Supabase (for hosting and storing your data).
+            Locality uses Google (for sign-in), Vercel (for hosting), and Render (for storing your data).
             Your use of Locality is also subject to those providers&apos; own terms.
           </p>
         </section>

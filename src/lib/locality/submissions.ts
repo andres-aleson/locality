@@ -1,5 +1,7 @@
 import "server-only";
-import { getSupabase } from "@/lib/supabase";
+import { desc, eq } from "drizzle-orm";
+import { getDb } from "@/db";
+import { localitySubmissions } from "@/db/schema";
 import type { Submission, SubmissionStatus } from "./types";
 
 interface SubmissionRow {
@@ -33,24 +35,19 @@ function toSubmission(row: SubmissionRow): Submission {
 }
 
 export async function listSubmissions(): Promise<Submission[]> {
-  const { data, error } = await getSupabase()
-    .from("locality_submissions")
-    .select()
-    .order("uploaded_at", { ascending: false });
-  if (error) throw error;
-  return (data as SubmissionRow[]).map(toSubmission);
+  const rows = await getDb().select().from(localitySubmissions).orderBy(desc(localitySubmissions.uploaded_at));
+  return (rows as SubmissionRow[]).map(toSubmission);
 }
 
 export async function getSubmission(id: string): Promise<Submission | null> {
-  const { data, error } = await getSupabase().from("locality_submissions").select().eq("id", id).maybeSingle();
-  if (error) throw error;
-  return data ? toSubmission(data as SubmissionRow) : null;
+  const [row] = await getDb().select().from(localitySubmissions).where(eq(localitySubmissions.id, id)).limit(1);
+  return row ? toSubmission(row as SubmissionRow) : null;
 }
 
 export async function addSubmission(input: Omit<Submission, "id" | "uploadedAt">): Promise<Submission> {
-  const { data, error } = await getSupabase()
-    .from("locality_submissions")
-    .insert({
+  const [row] = await getDb()
+    .insert(localitySubmissions)
+    .values({
       kind: input.kind,
       uploader_name: input.uploaderName,
       uploader_email: input.uploaderEmail,
@@ -60,22 +57,18 @@ export async function addSubmission(input: Omit<Submission, "id" | "uploadedAt">
       status: input.status,
       quality_check: input.qualityCheck,
     })
-    .select()
-    .single();
-  if (error) throw error;
-  return toSubmission(data as SubmissionRow);
+    .returning();
+  return toSubmission(row as SubmissionRow);
 }
 
 export async function updateSubmissionStatus(
   id: string,
   status: Extract<SubmissionStatus, "approved" | "rejected">
 ): Promise<Submission | null> {
-  const { data, error } = await getSupabase()
-    .from("locality_submissions")
-    .update({ status, reviewed_at: new Date().toISOString() })
-    .eq("id", id)
-    .select()
-    .maybeSingle();
-  if (error) throw error;
-  return data ? toSubmission(data as SubmissionRow) : null;
+  const [row] = await getDb()
+    .update(localitySubmissions)
+    .set({ status, reviewed_at: new Date().toISOString() })
+    .where(eq(localitySubmissions.id, id))
+    .returning();
+  return row ? toSubmission(row as SubmissionRow) : null;
 }

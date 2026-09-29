@@ -49,3 +49,4 @@ src/app/.claude/
 
 # tesseract language data (downloaded at runtime, 5MB binary)
 eng.traineddata
+!.env.example

@@ -1,20 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
-import { sendMessage } from "@/lib/locality/actions";
+import { pollRideMessages, sendMessage } from "@/lib/locality/actions";
 import type { Message } from "@/lib/locality/types";
 
-interface MessageRow {
-  id: string;
-  ride_id: string;
-  sender_id: string;
-  text: string;
-  created_at: string;
-}
+const POLL_INTERVAL_MS = 4000;
 
-function fromRow(row: MessageRow): Message {
-  return { id: row.id, rideId: row.ride_id, senderId: row.sender_id, text: row.text, timestamp: row.created_at };
+/** Adds any messages from `latest` not already shown, keeping chronological order. */
+function mergeMessages(prev: Message[], latest: Message[]): Message[] {
+  const known = new Set(prev.map((m) => m.id));
+  const added = latest.filter((m) => !known.has(m.id));
+  if (added.length === 0) return prev;
+  return [...prev, ...added].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 }
 
 export function MessagesThread({
@@ -36,24 +33,24 @@ export function MessagesThread({
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [messages.length]);
 
+  // Poll for new messages while the tab is visible (replaces Supabase Realtime).
   useEffect(() => {
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) return;
-
-    const channel = supabase
-      .channel(`locality-messages-${rideId}`)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "locality_messages", filter: `ride_id=eq.${rideId}` },
-        (payload) => {
-          const row = payload.new as MessageRow;
-          setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, fromRow(row)]));
-        }
-      )
-      .subscribe();
-
+    let cancelled = false;
+    const refresh = async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const latest = await pollRideMessages(rideId);
+        if (!cancelled) setMessages((prev) => mergeMessages(prev, latest));
+      } catch {
+        // Transient network/server error — the next tick retries.
+      }
+    };
+    const timer = setInterval(refresh, POLL_INTERVAL_MS);
+    document.addEventListener("visibilitychange", refresh);
     return () => {
-      supabase.removeChannel(channel);
+      cancelled = true;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
     };
   }, [rideId]);
 

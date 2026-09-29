@@ -12,7 +12,7 @@ import {
   generateNextWeeklyPlan,
   toggleActionStatus,
 } from "@/lib/actions";
-import { getSessionUser } from "@/lib/supabase-server";
+import { getSessionUser } from "@/lib/session";
 import { signOut } from "@/lib/auth-actions";
 import type { PlanAction } from "@/lib/types";
 import { SiteHeader } from "@/components/SiteHeader";

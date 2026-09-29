@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { getApprovedReviews } from "@/lib/db";
-import { getSessionUser } from "@/lib/supabase-server";
+import { getSessionUser } from "@/lib/session";
+
+// Shows live approved reviews and the caller's session — never prerender.
+export const dynamic = "force-dynamic";
 
 const steps = [
   {

@@ -4,34 +4,46 @@ AI marketing coach for first-time local business owners: onboard a business,
 get an AI-generated weekly marketing plan, and generate ready-to-use draft
 content for each action in the plan.
 
+This repo also hosts **Locality** (a school carpool app) under `/locality`. The two products share one deployment, one database schema and one Google sign-in.
+
 ## Stack
 
-- **Next.js (App Router) + TypeScript + Tailwind** — single deployable app, Server Actions for all mutations (no separate API layer).
-- **Supabase (Postgres)** — `businesses`, `weekly_plans`, `plan_actions`, `content_drafts`. Schema in [`supabase/schema.sql`](supabase/schema.sql).
+- **Next.js (App Router) + TypeScript + Tailwind** — single deployable app on **Vercel**, Server Actions for all mutations (no separate API layer).
+- **Postgres on Render** — everything lives in the `locality` schema of the shared Render database, accessed with [Drizzle ORM](https://orm.drizzle.team). Tables are defined in [`src/db/schema.ts`](src/db/schema.ts), migrations live in [`drizzle/`](drizzle).
+- **Google sign-in (Auth.js)** — JWT sessions, no sessions table; each Google account gets a row in `locality.users` on first sign-in ([`src/lib/auth.ts`](src/lib/auth.ts)). Ownership is enforced server-side by scoping every query to the caller's user id; [`src/proxy.ts`](src/proxy.ts) gates the signed-in and admin areas.
 - **Claude API (Anthropic)** — plan and content generation in [`src/lib/ai.ts`](src/lib/ai.ts). Falls back to deterministic mock output if `ANTHROPIC_API_KEY` is unset, so the full loop works before you have a key.
-- **Google sign-in (Supabase Auth)** — one business per account. `/dashboard` and `/onboarding` require a session; ownership is enforced server-side by scoping every query to the caller's `user_id` (see [`src/lib/supabase-server.ts`](src/lib/supabase-server.ts), [`src/proxy.ts`](src/proxy.ts)).
+- Locality's ride and Circle chats refresh by polling every few seconds while the tab is visible.
+
+## Database
+
+- `DATABASE_URL` is used by the app. It connects as `locality_app`, a role that can only read and write rows in the `locality` schema.
+- `MIGRATION_DATABASE_URL` is used only by drizzle-kit, and needs a role that can create tables in `locality` (the Render admin user). It is not set on Vercel.
+
+First-time setup on the shared database (as the admin user; set a real password in the file first):
+
+```bash
+psql "$MIGRATION_DATABASE_URL" -f scripts/setup-db.sql
+npm run db:migrate
+```
+
+To change the schema, edit `src/db/schema.ts`, then run:
+
+```bash
+npm run db:generate   # write a new SQL migration to drizzle/
+npm run db:migrate    # apply it (needs MIGRATION_DATABASE_URL)
+```
+
+Apply migrations before deploying code that depends on them.
 
 ## Setup
 
-1. Copy the env template and fill it in:
+1. `cp .env.example .env.local` and fill it in (each variable is described there).
+2. Create a Google OAuth 2.0 Client ID (Web application) in [Google Cloud Console](https://console.cloud.google.com) with authorized redirect URIs `http://localhost:3000/api/auth/callback/google` and `https://<your-domain>/api/auth/callback/google`. Put the ID and secret in `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET`.
+3. `npm run dev` and open [http://localhost:3000](http://localhost:3000) (LocalReach) or [http://localhost:3000/locality](http://localhost:3000/locality).
 
-   ```bash
-   cp .env.local.example .env.local
-   ```
+## Deploy (Vercel)
 
-2. Create a [Supabase](https://supabase.com) project, then run [`supabase/schema.sql`](supabase/schema.sql) in its SQL editor (Project > SQL Editor > New query). Copy the project URL and **service role key** (Project Settings > API) into `.env.local`.
-
-3. Set up Google sign-in: create an OAuth 2.0 Client ID (Web application) in [Google Cloud Console](https://console.cloud.google.com), with authorized redirect URI `https://<your-project-ref>.supabase.co/auth/v1/callback`. Paste the Client ID + Secret into Supabase Dashboard > Authentication > Providers > Google. Then copy the project's **anon/public key** (Project Settings > API) into `.env.local` as `NEXT_PUBLIC_SUPABASE_ANON_KEY` (along with `NEXT_PUBLIC_SUPABASE_URL`).
-
-4. (Optional but recommended) Get an API key from [console.anthropic.com](https://console.anthropic.com) and add it as `ANTHROPIC_API_KEY`. Without it, plans and content are generated from a deterministic mock so you can still exercise the full flow.
-
-5. Run the dev server:
-
-   ```bash
-   npm run dev
-   ```
-
-   Open [http://localhost:3000](http://localhost:3000).
+Pushes to `main` deploy to production. Set every variable from `.env.example` except `MIGRATION_DATABASE_URL` in the Vercel project's Environment Variables, and run `npm run db:migrate` before pushing code that needs a new migration.
 
 ## Core loop
 
@@ -52,20 +64,23 @@ src/
   app/
     page.tsx                Landing / marketing page
     login/page.tsx          Google sign-in
-    auth/callback/route.ts  OAuth code exchange
+    api/auth/[...nextauth]  Auth.js routes (OAuth callback: /api/auth/callback/google)
     onboarding/page.tsx      Business profile form (redirects to /dashboard if one exists)
     dashboard/page.tsx       Weekly plan + actions + content drafts, for the signed-in account
     dashboard/review/page.tsx  Post-plan review form
   lib/
     types.ts             Shared TypeScript types
-    supabase.ts          Server-only Supabase client (service role key)
-    supabase-server.ts   Cookie-aware Supabase client + getSessionUser()
+    auth.ts              Auth.js config (Google provider, users upsert)
+    session.ts           getSessionUser() for the current request
     auth-actions.ts       Server Actions: signInWithGoogle, signOut
     ai.ts                 Claude integration + mock fallback
-    db.ts                 Supabase queries
+    db.ts                 LocalReach queries (Drizzle)
     actions.ts            Server Actions: createBusinessAndPlan, generateContentForAction,
                            toggleActionStatus, generateNextWeeklyPlan, submitReview
-  proxy.ts               Gates /admin (Basic Auth) and /dashboard, /onboarding (Google session)
-supabase/
-  schema.sql       Database schema
+  proxy.ts               Gates /admin, /locality/admin (Basic Auth) and signed-in areas (Google session)
+  db/
+    schema.ts            Drizzle schema (LocalReach + Locality tables)
+    index.ts             Postgres pool / Drizzle client
+drizzle/                 SQL migrations (incl. Locality demo seed data)
+scripts/setup-db.sql     One-time schema + app role setup
 ```
