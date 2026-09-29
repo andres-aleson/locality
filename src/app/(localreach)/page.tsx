@@ -40,7 +40,12 @@ const benefits = [
 ];
 
 export default async function Home() {
-  const reviews = await getApprovedReviews();
+  // Testimonials are decoration — if the database is unreachable (or not
+  // configured yet), render the page without them instead of failing it.
+  const reviews = await getApprovedReviews().catch((error) => {
+    console.error("Failed to load approved reviews:", error);
+    return [];
+  });
   const user = await getSessionUser();
 
   return (
